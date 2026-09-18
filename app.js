@@ -35,7 +35,7 @@ const els = {};
 function cacheEls() {
   [
     'patient-select', 'protocol-select', 'ear-right-btn', 'ear-left-btn',
-    'binaural-btn', 'admin-btn', 'print-btn', 'start-btn',
+    'binaural-btn', 'share-btn', 'admin-btn', 'print-btn', 'start-btn',
     'single-view', 'binaural-view',
     'probe-canvas', 'response-canvas', 'dpgram-canvas',
     'summary-tbody',
@@ -153,6 +153,55 @@ function getEarPoints(patient, ear, protoKey) {
   return proto.points.map((f2, idx) => computePoint(patient.id, ear, protoKey, idx, earData.points[idx]));
 }
 
+// ─── SHARE LINK CODEC ─────────────────────────────────────────
+// Compact-enough (not bit-packed) base64url encoding of a single patient
+// case into the URL hash, so a case can be shared via a link like the
+// other simulators (#case=<encoded>).
+function encodeCase(patient) {
+  const json = JSON.stringify(patient);
+  const b64 = btoa(unescape(encodeURIComponent(json)));
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodeCase(encoded) {
+  let b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  const json = decodeURIComponent(escape(atob(b64)));
+  return JSON.parse(json);
+}
+
+function buildShareUrl(patient) {
+  const url = new URL(window.location.href);
+  url.hash = 'case=' + encodeCase(patient);
+  return url.toString();
+}
+
+async function shareCurrentCase() {
+  if (!state.currentPatient) return;
+  const url = buildShareUrl(state.currentPatient);
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('Share link copied to clipboard');
+  } catch (e) {
+    showToast('Copy failed — link: ' + url, 4000);
+  }
+}
+
+function tryLoadSharedCase() {
+  const match = /(?:^|[#&])case=([^&]+)/.exec(window.location.hash);
+  if (!match) return false;
+  try {
+    const patient = decodeCase(match[1]);
+    if (!patient || !patient.ears) return false;
+    if (!patient.id) patient.id = 'shared-' + Date.now();
+    if (!patient.name) patient.name = 'Shared case';
+    state.patients = [patient, ...state.patients];
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 // ─── CANVAS HELPERS ─────────────────────────────────────────
 function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
@@ -177,7 +226,10 @@ function linScaleY(val, minV, maxV, padTop, plotH) {
 }
 
 // ─── PROBE CHECK CANVAS ──────────────────────────────────────
-function drawProbeCheck(canvas, seedKey) {
+// Modeled on the reference Titan Suite probe-check curve: a sharp low-frequency
+// rise (probe insertion transient), then a gently undulating plateau with a
+// broad dip around 3-5kHz before recovering toward the high end.
+function drawProbeCheck(canvas, seedKey, ear) {
   const { ctx, w, h } = setupCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
   const padL = 34, padR = 10, padT = 22, padB = 20;
@@ -211,24 +263,32 @@ function drawProbeCheck(canvas, seedKey) {
   });
 
   const rng = seededRng(hashStr(seedKey + '|probe'));
-  const correlation = Math.round(90 + rng() * 10);
+  const correlation = Math.round(97 + rng() * 3); // near-100%, well-seated probe
   ctx.fillStyle = '#333';
   ctx.font = 'bold 12px Arial';
   ctx.textAlign = 'right';
   ctx.fillText('Correlation ' + correlation + '%', w - padR, padT - 8);
 
-  ctx.strokeStyle = '#e0842a';
+  const color = ear === 'left' ? '#2f6fa8' : '#c0392b';
+  ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  const n = 200;
-  let baseline = 55;
+  const n = 220;
+  const peak = 62 + (rng() - 0.5) * 6;
+  const dipCenter = 3.8 + (rng() - 0.5) * 1.2;
   for (let i = 0; i <= n; i++) {
     const f = (i / n) * maxF;
     const x = padL + (i / n) * plotW;
-    let val = baseline - 8 * Math.exp(-f * 1.2) * Math.sin(f * 14 + 2)
-      - (f > 3 ? (f - 3) * 3 : 0)
-      + (rng() - 0.5) * 6;
-    if (f < 0.3) val = 30 + f * 80 + (rng() - 0.5) * 8;
+    let val;
+    if (f < 0.35) {
+      // sharp insertion rise
+      val = 30 + (peak - 30) * (f / 0.35) + (rng() - 0.5) * 4;
+    } else {
+      const settle = peak - 6 * Math.exp(-(f - 0.35) * 3); // brief overshoot settling
+      const dip = 14 * Math.exp(-Math.pow((f - dipCenter) / 1.8, 2));
+      const ripple = 2.5 * Math.sin(f * 9 + 1.3);
+      val = settle - dip + ripple + (rng() - 0.5) * 2.5;
+    }
     val = Math.max(minY + 2, Math.min(maxY - 2, val));
     const y = linScaleY(val, minY, maxY, padT, plotH);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
@@ -280,15 +340,19 @@ function drawResponse(canvas, point, seedKey, idx) {
   const fx = f => padL + ((f - minF) / (maxF - minF)) * plotW;
   const fy = v => linScaleY(v, minY, maxY, padT, plotH);
 
-  // shaded stimulus regions around F1 and F2
+  // shaded level-tolerance boxes: L1/L2 dB SPL +/- 6dB, centered over F1/F2.
+  // These indicate whether the delivered stimulus level is within tolerance,
+  // not a frequency-selectivity window.
   const f1KHz = point.f1 / 1000, f2KHz = point.f2 / 1000;
-  const bandW = spanKHz * 0.06;
-  ctx.fillStyle = 'rgba(0,0,0,0.08)';
-  [f1KHz, f2KHz].forEach(fk => {
+  const bandW = spanKHz * 0.05;
+  ctx.fillStyle = 'rgba(0,0,0,0.12)';
+  [[f1KHz, point.l1], [f2KHz, point.l2]].forEach(([fk, level]) => {
     if (fk >= minF && fk <= maxF) {
       const x1 = fx(Math.max(minF, fk - bandW));
       const x2 = fx(Math.min(maxF, fk + bandW));
-      ctx.fillRect(x1, padT, x2 - x1, plotH * 0.25);
+      const yTop = fy(Math.min(maxY, level + 6));
+      const yBot = fy(Math.max(minY, level - 6));
+      ctx.fillRect(x1, yTop, x2 - x1, yBot - yTop);
     }
   });
 
@@ -328,7 +392,9 @@ function drawResponse(canvas, point, seedKey, idx) {
 // ─── DP-GRAM CANVAS ────────────────────────────────────────
 const dpgramLayout = {}; // canvasId -> { points: [{x,y,data}], geom }
 
-function drawDpGram(canvas, points, selectedIdx, layoutKey) {
+function drawDpGram(canvas, points, selectedIdx, layoutKey, ear) {
+  const accent = ear === 'left' ? '#2f6fa8' : '#c0392b';
+  const accentDark = ear === 'left' ? '#16324a' : '#7a2015';
   const { ctx, w, h } = setupCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
   const padL = 40, padR = 16, padT = 20, padB = 26;
@@ -394,7 +460,7 @@ function drawDpGram(canvas, points, selectedIdx, layoutKey) {
     data: p
   }));
 
-  ctx.strokeStyle = '#2f6fa8';
+  ctx.strokeStyle = accent;
   ctx.lineWidth = 1.6;
   ctx.beginPath();
   coords.forEach((c, i) => { if (i === 0) ctx.moveTo(c.x, c.y); else ctx.lineTo(c.x, c.y); });
@@ -403,7 +469,7 @@ function drawDpGram(canvas, points, selectedIdx, layoutKey) {
   coords.forEach((c, i) => {
     ctx.beginPath();
     ctx.arc(c.x, c.y, i === selectedIdx ? 6 : 4.5, 0, Math.PI * 2);
-    ctx.fillStyle = i === selectedIdx ? '#16324a' : '#2f6fa8';
+    ctx.fillStyle = i === selectedIdx ? accentDark : accent;
     ctx.fill();
     ctx.strokeStyle = '#fff';
     ctx.lineWidth = 1;
@@ -483,9 +549,9 @@ function renderSingleView() {
   if (state.selectedIndex >= points.length) state.selectedIndex = 0;
   const seedKey = state.currentPatient.id + '|' + state.ear;
 
-  drawProbeCheck(els['probe-canvas'], seedKey);
+  drawProbeCheck(els['probe-canvas'], seedKey, state.ear);
   drawResponse(els['response-canvas'], points[state.selectedIndex], seedKey, state.selectedIndex);
-  drawDpGram(els['dpgram-canvas'], points, state.selectedIndex, 'single');
+  drawDpGram(els['dpgram-canvas'], points, state.selectedIndex, 'single', state.ear);
   renderSummaryTable(points, state.selectedIndex);
 }
 
@@ -496,9 +562,9 @@ function renderBinauralView() {
     if (state.binSelected[ear] >= points.length) state.binSelected[ear] = 0;
     const idx = state.binSelected[ear];
     const seedKey = state.currentPatient.id + '|' + ear;
-    drawProbeCheck(els['bin-' + ear + '-probe-canvas'], seedKey);
+    drawProbeCheck(els['bin-' + ear + '-probe-canvas'], seedKey, ear);
     drawResponse(els['bin-' + ear + '-response-canvas'], points[idx], seedKey, idx);
-    drawDpGram(els['bin-' + ear + '-dpgram-canvas'], points, idx, 'bin-' + ear);
+    drawDpGram(els['bin-' + ear + '-dpgram-canvas'], points, idx, 'bin-' + ear, ear);
   });
 }
 
@@ -566,6 +632,7 @@ function attachEvents() {
   els['ear-right-btn'].addEventListener('click', () => setEar('right'));
   els['ear-left-btn'].addEventListener('click', () => setEar('left'));
   els['binaural-btn'].addEventListener('click', () => setBinaural(!state.binaural));
+  els['share-btn'].addEventListener('click', shareCurrentCase);
   els['admin-btn'].addEventListener('click', () => { window.location.href = 'admin.html'; });
   els['print-btn'].addEventListener('click', printSummary);
   els['start-btn'].addEventListener('click', () => {
@@ -607,8 +674,10 @@ function attachEvents() {
 (async function init() {
   cacheEls();
   await loadPatients();
+  const sharedLoaded = tryLoadSharedCase();
   populatePatientSelect();
   populateProtocolSelect();
   attachEvents();
   selectPatient(0);
+  if (sharedLoaded) showToast('Loaded shared case: ' + state.currentPatient.name);
 })();

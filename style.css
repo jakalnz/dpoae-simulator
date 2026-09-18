@@ -69,9 +69,34 @@ html, body {
   border-color: #e0842a;
 }
 
-.wide-btn {
-  margin-top: 6px;
+.pill-btn {
+  margin-top: 8px;
   width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.35);
+  background: rgba(255,255,255,.08);
+  color: #fff;
+  cursor: pointer;
+  font-size: 12.5px;
+  transition: background .15s, border-color .15s;
+}
+
+.pill-btn:hover {
+  background: rgba(255,255,255,.2);
+}
+
+.pill-btn.active {
+  background: #e0842a;
+  border-color: #e0842a;
+}
+
+.pill-btn svg {
+  flex: 0 0 auto;
 }
 
 .sidebar-spacer {
