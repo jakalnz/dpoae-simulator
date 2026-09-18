@@ -370,6 +370,9 @@ function drawResponse(canvas, point, seedKey, idx) {
   // Build a single jagged FFT-style trace: a noisy baseline with narrow
   // mountain-peak spikes rising out of it at the DP, F1 and F2 bins —
   // mimicking real spectral bins rather than separate detached lines.
+  // Spike frequencies are inserted as exact knot points (rather than relying
+  // on a uniform grid to happen to land on them) so each peak reaches its
+  // true target amplitude precisely.
   const rng = seededRng(hashStr(seedKey + '|resp|' + idx));
   const n = 260;
   const noiseFloor = point.noise;
@@ -380,28 +383,27 @@ function drawResponse(canvas, point, seedKey, idx) {
     { f: f2KHz, amp: point.l2 }
   ].filter(s => s.f >= minF && s.f <= maxF);
 
-  const binVals = [];
+  const spikeHalfWidth = (maxF - minF) * 0.012; // narrow triangular base, in kHz
+
+  // base grid, skipping samples that fall inside any spike's base width
+  const freqs = [];
   for (let i = 0; i <= n; i++) {
     const f = minF + (i / n) * (maxF - minF);
-    let val = noiseFloor + (rng() - 0.5) * 9;
-    spikes.forEach(s => {
-      const binWidth = (maxF - minF) / n;
-      const dist = Math.abs(f - s.f) / binWidth; // in bins
-      if (dist < 1.6) {
-        const shape = Math.max(0, 1 - dist / 1.6); // triangular taper
-        const spikeVal = noiseFloor + (s.amp - noiseFloor) * Math.pow(shape, 1.6);
-        if (spikeVal > val) val = spikeVal;
-      }
-    });
-    val = Math.max(minY + 1, val);
-    binVals.push(val);
+    if (!spikes.some(s => Math.abs(f - s.f) < spikeHalfWidth)) freqs.push(f);
   }
+  // exact spike knot points: shoulder - peak - shoulder
+  spikes.forEach(s => {
+    freqs.push(s.f - spikeHalfWidth, s.f, s.f + spikeHalfWidth);
+  });
+  freqs.sort((a, b) => a - b);
 
   ctx.strokeStyle = '#222';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  binVals.forEach((val, i) => {
-    const x = padL + (i / n) * plotW;
+  freqs.forEach((f, i) => {
+    const spike = spikes.find(s => f === s.f);
+    const val = spike ? spike.amp : Math.max(minY + 1, noiseFloor + (rng() - 0.5) * 9);
+    const x = fx(f);
     const y = fy(val);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   });
