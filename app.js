@@ -367,37 +367,57 @@ function drawResponse(canvas, point, seedKey, idx) {
     }
   });
 
+  // Build a single jagged FFT-style trace: a noisy baseline with narrow
+  // mountain-peak spikes rising out of it at the DP, F1 and F2 bins —
+  // mimicking real spectral bins rather than separate detached lines.
   const rng = seededRng(hashStr(seedKey + '|resp|' + idx));
+  const n = 260;
+  const noiseFloor = point.noise;
+  const dpKHz = (2 * point.f1 - point.f2) / 1000;
+  const spikes = [
+    { f: dpKHz, amp: point.level },
+    { f: f1KHz, amp: point.l1 },
+    { f: f2KHz, amp: point.l2 }
+  ].filter(s => s.f >= minF && s.f <= maxF);
+
+  const binVals = [];
+  for (let i = 0; i <= n; i++) {
+    const f = minF + (i / n) * (maxF - minF);
+    let val = noiseFloor + (rng() - 0.5) * 9;
+    spikes.forEach(s => {
+      const binWidth = (maxF - minF) / n;
+      const dist = Math.abs(f - s.f) / binWidth; // in bins
+      if (dist < 1.6) {
+        const shape = Math.max(0, 1 - dist / 1.6); // triangular taper
+        const spikeVal = noiseFloor + (s.amp - noiseFloor) * Math.pow(shape, 1.6);
+        if (spikeVal > val) val = spikeVal;
+      }
+    });
+    val = Math.max(minY + 1, val);
+    binVals.push(val);
+  }
+
   ctx.strokeStyle = '#222';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  const n = 260;
-  const noiseFloor = point.noise;
-  for (let i = 0; i <= n; i++) {
-    const f = minF + (i / n) * (maxF - minF);
+  binVals.forEach((val, i) => {
     const x = padL + (i / n) * plotW;
-    let val = noiseFloor + (rng() - 0.5) * 10;
-    val = Math.max(minY + 1, val);
     const y = fy(val);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  }
+  });
   ctx.stroke();
 
-  function drawPeak(freqKHz, amp, color) {
-    if (freqKHz < minF || freqKHz > maxF) return;
-    const x = fx(freqKHz);
-    ctx.strokeStyle = color;
+  // highlight the DP peak tip in a distinct color, like the test-tone marker
+  // in the reference screenshot
+  if (dpKHz >= minF && dpKHz <= maxF) {
+    const x = fx(dpKHz);
+    ctx.strokeStyle = '#1f6fa8';
     ctx.lineWidth = 1.8;
     ctx.beginPath();
-    ctx.moveTo(x, fy(minY));
-    ctx.lineTo(x, fy(amp));
+    ctx.moveTo(x, fy(noiseFloor));
+    ctx.lineTo(x, fy(point.level));
     ctx.stroke();
   }
-
-  const dpKHz = (2 * point.f1 - point.f2) / 1000;
-  drawPeak(dpKHz, point.level, '#8a1c1c');
-  drawPeak(f1KHz, point.l1, '#222');
-  drawPeak(f2KHz, point.l2, '#222');
 }
 
 // ─── DP-GRAM CANVAS ────────────────────────────────────────
