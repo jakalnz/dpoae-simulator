@@ -345,14 +345,17 @@ function drawResponse(canvas, point, seedKey, idx) {
   // not a frequency-selectivity window.
   const f1KHz = point.f1 / 1000, f2KHz = point.f2 / 1000;
   const bandW = spanKHz * 0.05;
-  ctx.fillStyle = 'rgba(0,0,0,0.12)';
   [[f1KHz, point.l1], [f2KHz, point.l2]].forEach(([fk, level]) => {
     if (fk >= minF && fk <= maxF) {
       const x1 = fx(Math.max(minF, fk - bandW));
       const x2 = fx(Math.min(maxF, fk + bandW));
       const yTop = fy(Math.min(maxY, level + 6));
       const yBot = fy(Math.max(minY, level - 6));
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
       ctx.fillRect(x1, yTop, x2 - x1, yBot - yTop);
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x1, yTop, x2 - x1, yBot - yTop);
     }
   });
 
@@ -385,8 +388,8 @@ function drawResponse(canvas, point, seedKey, idx) {
 
   const dpKHz = (2 * point.f1 - point.f2) / 1000;
   drawPeak(dpKHz, point.level, '#8a1c1c');
-  drawPeak(f1KHz, point.l1 - 5, '#222');
-  drawPeak(f2KHz, point.l2 - 5, '#222');
+  drawPeak(f1KHz, point.l1, '#222');
+  drawPeak(f2KHz, point.l2, '#222');
 }
 
 // ─── DP-GRAM CANVAS ────────────────────────────────────────
