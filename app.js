@@ -226,10 +226,33 @@ function linScaleY(val, minV, maxV, padTop, plotH) {
 }
 
 // ─── PROBE CHECK CANVAS ──────────────────────────────────────
-// Modeled on the reference Titan Suite probe-check curve: a sharp low-frequency
-// rise (probe insertion transient), then a gently undulating plateau with a
-// broad dip around 3-5kHz before recovering toward the high end.
-function drawProbeCheck(canvas, seedKey, ear) {
+// Control points (kHz, dB SPL) tracing the reference Titan Suite probe-check
+// curve: a sharp low-frequency insertion peak, a long gently-undulating
+// plateau, a broad trough around 5.5-6kHz, then a recovery toward 8kHz.
+const PROBE_CURVE_POINTS = [
+  [0, 48], [0.12, 50], [0.3, 68], [0.45, 62], [0.6, 58], [0.8, 54],
+  [1.0, 50], [1.3, 49], [1.6, 50], [2.0, 48], [2.3, 46], [2.6, 48],
+  [3.0, 50], [3.3, 48], [3.6, 44], [3.9, 45], [4.2, 48], [4.5, 45],
+  [4.8, 42], [5.1, 39], [5.4, 37], [5.7, 36], [6.0, 37], [6.3, 40],
+  [6.6, 43], [6.9, 45], [7.2, 46], [7.5, 47], [7.8, 48], [8.0, 49]
+];
+
+function interpProbeCurve(f) {
+  const pts = PROBE_CURVE_POINTS;
+  if (f <= pts[0][0]) return pts[0][1];
+  if (f >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [f0, v0] = pts[i], [f1, v1] = pts[i + 1];
+    if (f >= f0 && f <= f1) {
+      const t = (f - f0) / (f1 - f0);
+      const smooth = t * t * (3 - 2 * t); // smoothstep for a curved feel
+      return v0 + (v1 - v0) * smooth;
+    }
+  }
+  return pts[pts.length - 1][1];
+}
+
+function drawProbeCheck(canvas, seedKey, color) {
   const { ctx, w, h } = setupCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
   const padL = 34, padR = 10, padT = 22, padB = 20;
@@ -263,32 +286,20 @@ function drawProbeCheck(canvas, seedKey, ear) {
   });
 
   const rng = seededRng(hashStr(seedKey + '|probe'));
-  const correlation = Math.round(97 + rng() * 3); // near-100%, well-seated probe
+  const correlation = Math.round(98 + rng() * 2); // near-100%, well-seated probe
   ctx.fillStyle = '#333';
   ctx.font = 'bold 12px Arial';
   ctx.textAlign = 'right';
   ctx.fillText('Correlation ' + correlation + '%', w - padR, padT - 8);
 
-  const color = ear === 'left' ? '#2f6fa8' : '#c0392b';
-  ctx.strokeStyle = color;
+  ctx.strokeStyle = color || '#e0842a';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   const n = 220;
-  const peak = 62 + (rng() - 0.5) * 6;
-  const dipCenter = 3.8 + (rng() - 0.5) * 1.2;
   for (let i = 0; i <= n; i++) {
     const f = (i / n) * maxF;
     const x = padL + (i / n) * plotW;
-    let val;
-    if (f < 0.35) {
-      // sharp insertion rise
-      val = 30 + (peak - 30) * (f / 0.35) + (rng() - 0.5) * 4;
-    } else {
-      const settle = peak - 6 * Math.exp(-(f - 0.35) * 3); // brief overshoot settling
-      const dip = 14 * Math.exp(-Math.pow((f - dipCenter) / 1.8, 2));
-      const ripple = 2.5 * Math.sin(f * 9 + 1.3);
-      val = settle - dip + ripple + (rng() - 0.5) * 2.5;
-    }
+    let val = interpProbeCurve(f) + (rng() - 0.5) * 1.4;
     val = Math.max(minY + 2, Math.min(maxY - 2, val));
     const y = linScaleY(val, minY, maxY, padT, plotH);
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
@@ -549,7 +560,7 @@ function renderSingleView() {
   if (state.selectedIndex >= points.length) state.selectedIndex = 0;
   const seedKey = state.currentPatient.id + '|' + state.ear;
 
-  drawProbeCheck(els['probe-canvas'], seedKey, state.ear);
+  drawProbeCheck(els['probe-canvas'], seedKey, '#e0842a');
   drawResponse(els['response-canvas'], points[state.selectedIndex], seedKey, state.selectedIndex);
   drawDpGram(els['dpgram-canvas'], points, state.selectedIndex, 'single', state.ear);
   renderSummaryTable(points, state.selectedIndex);
@@ -562,7 +573,7 @@ function renderBinauralView() {
     if (state.binSelected[ear] >= points.length) state.binSelected[ear] = 0;
     const idx = state.binSelected[ear];
     const seedKey = state.currentPatient.id + '|' + ear;
-    drawProbeCheck(els['bin-' + ear + '-probe-canvas'], seedKey, ear);
+    drawProbeCheck(els['bin-' + ear + '-probe-canvas'], seedKey, ear === 'left' ? '#2f6fa8' : '#c0392b');
     drawResponse(els['bin-' + ear + '-response-canvas'], points[idx], seedKey, idx);
     drawDpGram(els['bin-' + ear + '-dpgram-canvas'], points, idx, 'bin-' + ear, ear);
   });
