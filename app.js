@@ -353,9 +353,6 @@ function drawResponse(canvas, point, seedKey, idx) {
       const yBot = fy(Math.max(minY, level - 6));
       ctx.fillStyle = 'rgba(0,0,0,0.12)';
       ctx.fillRect(x1, yTop, x2 - x1, yBot - yTop);
-      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x1, yTop, x2 - x1, yBot - yTop);
     }
   });
 
