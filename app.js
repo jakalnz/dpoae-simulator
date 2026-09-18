@@ -154,47 +154,94 @@ function getEarPoints(patient, ear, protoKey) {
 }
 
 // ─── SHARE LINK CODEC ─────────────────────────────────────────
-// Compact-enough (not bit-packed) base64url encoding of a single patient
-// case into the URL hash, so a case can be shared via a link like the
-// other simulators (#case=<encoded>).
-function encodeCase(patient) {
-  const json = JSON.stringify(patient);
-  const b64 = btoa(unescape(encodeURIComponent(json)));
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// Compact patient JSON -> gzip (via the native CompressionStream, when
+// available) -> base64url, packed into the URL hash so a case can be shared
+// via a short-ish link like the other simulators (#case=<encoded>).
+// Falls back to plain (uncompressed) base64 on browsers without
+// CompressionStream/DecompressionStream support.
+function bytesToBase64url(bytes) {
+  let binary = '';
+  bytes.forEach(b => { binary += String.fromCharCode(b); });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function decodeCase(encoded) {
-  let b64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
-  while (b64.length % 4) b64 += '=';
-  const json = decodeURIComponent(escape(atob(b64)));
-  return JSON.parse(json);
+function base64urlToBytes(b64) {
+  let s = b64.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const binary = atob(s);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
-function buildShareUrl(patient) {
+// Strip patient JSON down to only non-default fields to shrink the payload
+// further before compression (omits present:false / undefined overrides).
+function minifyPatientForShare(patient) {
+  const mini = { id: patient.id, name: patient.name, protocol: patient.protocol, ears: {} };
+  ['right', 'left'].forEach(ear => {
+    const pts = (patient.ears && patient.ears[ear] && patient.ears[ear].points) || [];
+    mini.ears[ear] = { points: pts.map(pt => {
+      const out = {};
+      if (pt.present) out.present = true;
+      ['level', 'snr', 'noise', 'reliability', 'l1', 'l2'].forEach(k => {
+        if (typeof pt[k] === 'number') out[k] = pt[k];
+      });
+      return out;
+    }) };
+  });
+  return mini;
+}
+
+async function encodeCase(patient) {
+  const json = JSON.stringify(minifyPatientForShare(patient));
+  if (typeof CompressionStream !== 'undefined') {
+    try {
+      const stream = new Blob([json]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+      const buf = await new Response(stream).arrayBuffer();
+      return 'z' + bytesToBase64url(new Uint8Array(buf));
+    } catch (e) { /* fall through to uncompressed */ }
+  }
+  return 'j' + bytesToBase64url(new TextEncoder().encode(json));
+}
+
+async function decodeCase(encoded) {
+  const tag = encoded[0];
+  const payload = encoded.slice(1);
+  const bytes = base64urlToBytes(payload);
+  if (tag === 'z') {
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+    const buf = await new Response(stream).arrayBuffer();
+    return JSON.parse(new TextDecoder().decode(buf));
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+async function buildShareUrl(patient) {
   const url = new URL(window.location.href);
-  url.hash = 'case=' + encodeCase(patient);
+  url.hash = 'case=' + await encodeCase(patient);
   return url.toString();
 }
 
 async function shareCurrentCase() {
   if (!state.currentPatient) return;
-  const url = buildShareUrl(state.currentPatient);
+  const url = await buildShareUrl(state.currentPatient);
   try {
     await navigator.clipboard.writeText(url);
-    showToast('Share link copied to clipboard');
+    showToast('Share link copied to clipboard (' + url.length + ' chars)');
   } catch (e) {
     showToast('Copy failed — link: ' + url, 4000);
   }
 }
 
-function tryLoadSharedCase() {
+async function tryLoadSharedCase() {
   const match = /(?:^|[#&])case=([^&]+)/.exec(window.location.hash);
   if (!match) return false;
   try {
-    const patient = decodeCase(match[1]);
+    const patient = await decodeCase(match[1]);
     if (!patient || !patient.ears) return false;
     if (!patient.id) patient.id = 'shared-' + Date.now();
     if (!patient.name) patient.name = 'Shared case';
+    if (!patient.protocol) patient.protocol = DEFAULT_PROTOCOL;
     state.patients = [patient, ...state.patients];
     return true;
   } catch (e) {
@@ -707,7 +754,7 @@ function attachEvents() {
 (async function init() {
   cacheEls();
   await loadPatients();
-  const sharedLoaded = tryLoadSharedCase();
+  const sharedLoaded = await tryLoadSharedCase();
   populatePatientSelect();
   populateProtocolSelect();
   attachEvents();
