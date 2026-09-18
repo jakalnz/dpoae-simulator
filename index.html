@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DPOAE Simulator</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div class="sidebar-title">DPOAE Simulator</div>
+
+    <label class="side-label">Patient</label>
+    <select id="patient-select"></select>
+
+    <label class="side-label">Protocol</label>
+    <select id="protocol-select"></select>
+
+    <label class="side-label">Ear</label>
+    <div id="ear-toggle" class="btn-row">
+      <button id="ear-right-btn" class="toggle-btn active" data-ear="right">Right</button>
+      <button id="ear-left-btn" class="toggle-btn" data-ear="left">Left</button>
+    </div>
+    <button id="binaural-btn" class="toggle-btn wide-btn">Binaural view</button>
+
+    <div class="sidebar-spacer"></div>
+
+    <button id="admin-btn" class="side-action-btn">Admin&hellip;</button>
+    <button id="print-btn" class="side-action-btn">Print summary</button>
+
+    <div class="sidebar-spacer"></div>
+
+    <button id="start-btn" class="start-btn">START</button>
+  </div>
+
+  <div id="main-content">
+    <div id="single-view" class="view">
+      <div class="panel-row">
+        <div class="panel" id="probe-panel">
+          <div class="panel-title">Probe check</div>
+          <canvas id="probe-canvas"></canvas>
+        </div>
+        <div class="panel" id="response-panel">
+          <div class="panel-title">Response</div>
+          <canvas id="response-canvas"></canvas>
+        </div>
+      </div>
+
+      <div class="panel" id="summary-panel">
+        <div class="panel-title">Point summary</div>
+        <table id="summary-table">
+          <thead>
+            <tr><th>f2 (Hz)</th><th>Level (dB SPL)</th><th>SNR (dB)</th><th>L1 (dB SPL)</th><th>L2 (dB SPL)</th><th>Reliab. (%)</th></tr>
+          </thead>
+          <tbody id="summary-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="panel" id="dpgram-panel">
+        <div class="panel-title">DP-Gram</div>
+        <canvas id="dpgram-canvas"></canvas>
+      </div>
+    </div>
+
+    <div id="binaural-view" class="view" style="display:none;">
+      <div class="bin-col">
+        <div class="panel-title bin-title">Right</div>
+        <div class="panel small-panel">
+          <canvas id="bin-right-probe-canvas"></canvas>
+        </div>
+        <div class="panel small-panel">
+          <canvas id="bin-right-response-canvas"></canvas>
+        </div>
+        <div class="panel" id="bin-right-dpgram-panel">
+          <canvas id="bin-right-dpgram-canvas"></canvas>
+        </div>
+      </div>
+      <div class="bin-col">
+        <div class="panel-title bin-title">Left</div>
+        <div class="panel small-panel">
+          <canvas id="bin-left-probe-canvas"></canvas>
+        </div>
+        <div class="panel small-panel">
+          <canvas id="bin-left-response-canvas"></canvas>
+        </div>
+        <div class="panel" id="bin-left-dpgram-panel">
+          <canvas id="bin-left-dpgram-canvas"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="tooltip" class="tooltip" style="display:none;"></div>
+<div id="toast" class="toast" style="display:none;"></div>
+
+<div id="print-summary"></div>
+
+<script src="defaultPatients.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

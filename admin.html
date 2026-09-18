@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DPOAE Simulator — Admin</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", Arial, sans-serif; background: #eef3f5; color: #1c2a33; margin: 0; padding: 20px; }
+  h1 { color: #1f4b57; font-size: 20px; }
+  #pin-denied { display:none; color:#a33; font-weight:600; margin-top:10px; }
+  .layout { display: flex; gap: 20px; align-items: flex-start; }
+  .col { background:#fff; border-radius:6px; box-shadow:0 1px 3px rgba(0,0,0,.15); padding:14px 16px; }
+  #patient-list-col { width: 260px; }
+  #editor-col { flex: 1; }
+  .patient-row { display:flex; justify-content:space-between; align-items:center; padding:6px 4px; border-bottom:1px solid #eee; cursor:pointer; font-size:13px; }
+  .patient-row:hover { background:#f3f7f9; }
+  .patient-row.active { background:#e0edf5; font-weight:600; }
+  .patient-row button { font-size:11px; }
+  label { display:block; font-size:12px; color:#556; margin-top:10px; margin-bottom:3px; }
+  input[type=text], select, input[type=number] { padding:5px 7px; border:1px solid #ccd4d8; border-radius:4px; font-size:13px; width: 100%; }
+  .actions { margin-top: 14px; display:flex; gap:8px; flex-wrap:wrap; }
+  button { padding:7px 12px; border-radius:4px; border:1px solid #99a; background:#2f6b7a; color:#fff; cursor:pointer; font-size:13px; }
+  button.secondary { background:#fff; color:#2f6b7a; }
+  button.danger { background:#a33; border-color:#a33; }
+  table.pt-table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size:12px; }
+  table.pt-table th, table.pt-table td { border:1px solid #dde4e8; padding:5px 6px; text-align:center; }
+  table.pt-table th { background:#f3f7f9; }
+  table.pt-table td input[type=number] { width: 70px; }
+  .ear-block { margin-top: 12px; }
+  .ear-block h3 { font-size:14px; color:#1f6fa8; margin-bottom:4px; }
+  #status-msg { margin-top:10px; font-size:13px; color:#276; }
+  #import-file { display:none; }
+</style>
+</head>
+<body>
+
+<div id="pin-gate-msg" style="display:none;">
+  <h1>Access denied</h1>
+  <p id="pin-denied" style="display:block;">Incorrect PIN.</p>
+  <a href="index.html">Back to simulator</a>
+</div>
+
+<div id="admin-root" style="display:none;">
+  <h1>DPOAE Simulator — Patient Admin</h1>
+  <div class="layout">
+    <div class="col" id="patient-list-col">
+      <button id="new-patient-btn" style="width:100%;">+ New patient</button>
+      <div id="patient-list" style="margin-top:10px;"></div>
+      <div class="actions">
+        <button class="secondary" id="export-btn">Export patients.json</button>
+        <button class="secondary" id="import-btn">Import JSON</button>
+        <input type="file" id="import-file" accept="application/json">
+      </div>
+      <div id="status-msg"></div>
+    </div>
+
+    <div class="col" id="editor-col">
+      <label>Patient name</label>
+      <input type="text" id="pt-name" placeholder="e.g. Case 12 — mixed loss">
+
+      <label>Protocol</label>
+      <select id="pt-protocol"></select>
+
+      <div id="ears-container"></div>
+
+      <div class="actions">
+        <button id="save-btn">Save patient</button>
+        <button class="danger" id="delete-btn">Delete patient</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="defaultPatients.js"></script>
+<script src="admin.js"></script>
+</body>
+</html>
